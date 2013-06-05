@@ -1,5 +1,32 @@
-#First initialize the app with (cloudprovider, key, secret, name of the folder in dropbox)
-Nimbus.Auth.setup("Dropbox", "q5yx30gr8mcvq4f", "qy64qphr70lwui5", "diary_app")
+$ ->
+  new FastClick(document.body)
+  
+  #$(window).on "load", ->
+  #  new FingerBlast(document.body)  
+  
+  render_entries()
+  
+  Nimbus.Auth.set_app_ready () ->
+    console.log("app ready called")
+    
+    if Nimbus.Auth.authorized()
+      $("#loginModal").removeClass("active")
+     
+      window.auto_sync()
+
+  
+  ###
+  $("#writearea").focus((e)->
+    $(document).scrollTop(0)
+    e.preventDefault()
+    $('html, body').animate({scrollTop:0,scrollLeft:0}, 'fast')
+  )
+  ###
+  
+  #$("#loginModal").removeClass("active")
+
+window.toggle_slide = () ->
+  $("body").toggleClass("slide_left")
 
 #create a model for each entry
 Entry = Nimbus.Model.setup("Entry", ["text", "create_time", "tags"])
@@ -10,15 +37,78 @@ Entry.ordersort = (a, b) ->
   y = new Date(b.create_time)
   (if (x < y) then -1 else 1)
 
-#Nimbus.Auth.authorized_callback is called when your app finish the authorization procedure. In this case, it fades out the loading div and then sync all the entries for the cloud.
-Nimbus.Auth.authorized_callback = ()->
+#function to render a single entry
+window.render_entry = (x) ->
+  d = new Date(x.create_time)
+  timeago = jQuery.timeago(d);
+  
+  n = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+  
+  processed_text = x.text
+  tag_string = ""
+  
+  if d.getDate() < 10
+    date_string = "0" + d.getDate()
+  else
+    date_string = d.getDate().toString()
+  
+  if x.tags?
+    for t in x.tags
+      tag_string = tag_string + t + " "
+      processed_text = processed_text.replace("#"+t, "<a onclick='filter_entry(\"#{ t }\");return false;'>##{ t }</a>")
+  
+  """<li class="event" id="#{ x.id }">       
+    <label></label>
+    <div class="thumb user-1"><span><strong>#{ date_string }</strong> #{ n[d.getMonth()] }</span></div>
+    <div class="content-perspective">
+      <div class="content-timeline">
+        <div class="content-inner">
+          <h3>#{ processed_text }</h3>
+          
+        </div>
 
-  if Nimbus.Auth.authorized()
-    $("#loading").fadeOut()
+        <div class="event-menu">
+            <a onclick="window.edit_entry('#{ x.id }')" style="padding-bottom: 7px">
+              <i class="icon-pencil" style="font-size: 18px;"></i>
+            </a>
+            <a style="padding-bottom: 7px" onclick="window.delete_entry('#{ x.id }')">
+              <i class="icon-trash" style="font-size: 17px;"></i>
+            </a>          
+        </div>
+
+      </div>
+    </div>
+  </li>"""
+
+#function to render all the entries, not important to how NimbusBase works
+window.render_entries= () ->
+  $(".timeline").html("")
+
+  for x in Entry.all().sort(Entry.ordersort)  
+    template = render_entry(x)
+    $(".timeline").prepend(template)
     
-    Entry.sync_all( ()->
-      render_entries()
-    )
+  $(".event").click( ()->
+    $(this).toggleClass("active")
+  )
+  
+
+#Function to delete a entry
+window.delete_entry = (id) ->
+  if not id?
+    id = window.current_entry
+  
+  x = Entry.find(id)
+  $(".event#"+id).remove()
+  x.destroy()
+  
+  $("#editModal").removeClass("active")
+
+#log out and delete everything in localstorage
+window.log_out = ->
+  Nimbus.Auth.logout()
+  $("body").toggleClass("slide_left")
+  $("#loginModal").addClass("active")
 
 #Function to add a new entry
 window.create_new_entry = ()->
@@ -33,106 +123,55 @@ window.create_new_entry = ()->
     $("#writearea").val("") #clear the div afterwards
     
     template = render_entry(x)
-    $(".holder").prepend(template)
-
-#Function to delete a entry
-window.delete_entry = (id) ->
-  x = Entry.find(id)
-  $(".feed#"+id).remove()
-  x.destroy()
-
-#UI function to filter entries by tags
-window.filter_entry = (e) ->
-  console.log("filter entries", e)
-  $(".feed").hide()
-  $(".#{e}").show()
-  $("#filter").val("#"+e)
-  $("#x_button").show()
-
-#UI function to clear of tags
-window.clear_tags = ()->
-  $("#filter").val("")
-  $(".feed").show()
-  $("#x_button").hide()
-
-#function to render a single entry
-window.render_entry = (x) ->
-  d = new Date(x.create_time)
-  timeago = jQuery.timeago(d);
-  
-  n = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-  
-  processed_text = x.text
-  tag_string = ""
-  
-  if x.tags?
-    for t in x.tags
-      tag_string = tag_string + t + " "
-      processed_text = processed_text.replace("#"+t, "<a onclick='filter_entry(\"#{ t }\");return false;'>##{ t }</a>")
-  
-  """<div class='feed #{ tag_string }' id='#{x.id}'><div class='feed_content'>
-  <header>
-      <div class="date avatar"><p>#{ d.getDate() }<span>#{ n[d.getMonth()] }</span></p></div>
-      <p class="diary_text" id="#{ x.id }" contenteditable>#{ processed_text }</p>
-      <div class="timeago">#{ timeago }</div>
-      <div class='actions'>
-        <a onclick='delete_entry("#{ x.id }")'>delete</a>
-      </div>
-  </header>
-  </div></div>"""
-
-
-#function to render all the entries, not important to how NimbusBase works
-window.render_entries= () ->
-  $(".holder").html("")
-
-  for x in Entry.all().sort(Entry.ordersort)  
-    template = render_entry(x)
-    $(".holder").prepend(template)
-
-  for x in $(".diary_text")
-	#this is triggered when you go out of the text box and an edit event happens. On a edit, you find the Entry and then change it. Call .save() to save.
-    $(x).blur( (x)-> 
-      e = Entry.find(x.target.id)
-      e.text = x.target.innerHTML
-      hashtags = twttr.txt.extractHashtags(x.target.innerHTML)
-      e.tags = hashtags
-      
-      rendered = render_entry(e)
-      $("#"+e.id).replaceWith( rendered )
-      
-      e.save()
+    $(".timeline").prepend(template)
+    
+    $("#addModal").toggleClass("active")
+    
+    $(".event").click( ()->
+      $(this).toggleClass("active")
     )
 
-window.sync = -> Entry.sync_all( -> render_entries() )
-
-#log out and delete everything in localstorage
-window.log_out = ->
-  for val, key of localStorage
-    delete localStorage[key]
-  $("#loading").show()
-
-#initialization function that is called at the beginning 
-jQuery ($) ->
-  if Nimbus.Auth.authorized()
-    $("#loading").fadeOut()
+#edit a entry
+window.edit_entry = (id) ->
+  console.log("edit entry called")
   
-  $("#x_button").hide()
+  x = Entry.find(id)
+  $("#editarea").val(x.text)
   
-  render_entries()
+  $("#editModal").addClass("active")
+  window.current_entry = id
   
-  #bind the filter section
-  $("#filter").keyup( ()->
-    if $("#filter").val() isnt "" and $( "."+ $("#filter").val().replace("#", ""))
-      window.filter_entry( $("#filter").val().replace("#", "") )
-      $("#x_button").show()
-    if $("#filter").val() is ""
-      clear_tags()
-  )
+#save entry
+window.save_entry = () ->
+  x = Entry.find(window.current_entry)
+  x.text = $("#editarea").val()
+  x.save()
+  
+  window.render_entries()
+  
+  $("#editModal").removeClass("active")
 
-  Entry.sync_all( ()->
-      render_entries()
-  )
+
+window.last_data = ""
+
+window.auto_sync = ->
+  console.log("auto sync called")
+  
+  if Nimbus.Auth.authorized() #and (window.navigator.onLine or navigator.network.connection.type is Connection.WIFI or navigator.network.connection.type is Connection.CELL_3G) 
+    
+    Entry.sync_all( ()->
+      if window.last_data isnt localStorage["Entry"]      
+
+        console.log("got here")
+        
+        window.render_entries()
+        window.last_data = localStorage["Entry"]
+    
+      setTimeout("window.auto_sync()", 2000)
+    )
+  else
+    setTimeout("window.auto_sync()", 2000)
+
 
 exports = this #this is needed to get around the coffeescript namespace wrap
 exports.Entry = Entry
